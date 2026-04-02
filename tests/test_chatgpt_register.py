@@ -29,6 +29,13 @@ class SequenceEmailService(DummyEmailService):
         return self.codes.pop(0)
 
 
+class EmptyEmailService(DummyEmailService):
+    service_type = type("ST", (), {"value": "custom_provider"})()
+
+    def create_email(self):
+        return {"email": "   ", "service_id": "svc-empty"}
+
+
 class _DummyHTTPClient:
     def __init__(self, sessions):
         self._sessions = list(sessions)
@@ -70,6 +77,19 @@ class RegistrationEngineFlowTests(unittest.TestCase):
         self.assertEqual(email_service.calls[0]["exclude_codes"], set())
         self.assertEqual(email_service.calls[1]["exclude_codes"], {"111111"})
         self.assertEqual(engine._used_verification_codes, {"111111", "222222"})
+
+    def test_create_email_rejects_blank_email_from_provider(self):
+        engine = RefreshTokenRegistrationEngine(
+            email_service=EmptyEmailService(),
+            proxy_url="http://127.0.0.1:7890",
+            callback_logger=lambda msg: None,
+        )
+
+        ok = engine._create_email()
+
+        self.assertFalse(ok)
+        self.assertIsNone(engine.email)
+        self.assertIn("返回空邮箱地址", "\n".join(engine.logs))
 
     @mock.patch("platforms.chatgpt.refresh_token_registration_engine.seed_oai_device_cookie")
     @mock.patch(

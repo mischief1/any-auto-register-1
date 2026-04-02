@@ -27,7 +27,10 @@ class BaseMailbox(ABC):
         task_control = getattr(self, "_task_control", None)
         if task_control is None:
             return
-        task_control.checkpoint(consume_skip=consume_skip)
+        task_control.checkpoint(
+            consume_skip=consume_skip,
+            attempt_id=getattr(self, "_task_attempt_token", None),
+        )
 
     def _sleep_with_checkpoint(self, seconds: float) -> None:
         remaining = max(float(seconds or 0), 0.0)

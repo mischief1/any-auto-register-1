@@ -189,7 +189,16 @@ class RefreshTokenRegistrationEngine:
                 self._log("创建邮箱失败: 返回信息不完整", "error")
                 return False
 
-            self.email = self.email_info["email"]
+            email_value = str(self.email_info.get("email") or "").strip()
+            if not email_value:
+                self._log(
+                    f"创建邮箱失败: {self.email_service.service_type.value} 返回空邮箱地址",
+                    "error",
+                )
+                return False
+
+            self.email_info["email"] = email_value
+            self.email = email_value
             self._log(f"成功创建邮箱: {self.email}")
             return True
 
