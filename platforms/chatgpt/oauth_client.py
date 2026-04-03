@@ -495,34 +495,39 @@ class OAuthClient:
         authorize_url=None,
         authorize_params=None,
         screen_hint=None,
+        sentinel_override: str | None = None,
     ):
         """提交邮箱，获取 OAuth 流程的第一页状态。"""
         self._log("步骤2: POST /api/accounts/authorize/continue")
 
-        sentinel_token = get_sentinel_token_via_browser(
-            flow="authorize_continue",
-            proxy=self.proxy,
-            page_url=referer or f"{self.oauth_issuer}/log-in",
-            headless=self.browser_mode != "headed",
-            device_id=device_id,
-            log_fn=lambda msg: self._log(f"authorize_continue: {msg}"),
-        )
+        sentinel_token = str(sentinel_override or "").strip()
         if sentinel_token:
-            self._log("authorize_continue: 已通过 Playwright SentinelSDK 获取 token")
+            self._log("authorize_continue: 复用统一 Sentinel token")
         else:
-            sentinel_token = build_sentinel_token(
-                self.session,
-                device_id,
+            sentinel_token = get_sentinel_token_via_browser(
                 flow="authorize_continue",
-                user_agent=user_agent,
-                sec_ch_ua=sec_ch_ua,
-                impersonate=impersonate,
+                proxy=self.proxy,
+                page_url=continue_referer or f"{self.oauth_issuer}/log-in",
+                headless=self.browser_mode != "headed",
+                device_id=device_id,
+                log_fn=lambda msg: self._log(f"authorize_continue: {msg}"),
             )
             if sentinel_token:
-                self._log("authorize_continue: 已通过 HTTP PoW 获取 token")
+                self._log("authorize_continue: 已通过 Playwright SentinelSDK 获取 token")
             else:
-                self._set_error("无法获取 sentinel token (authorize_continue)")
-                return None
+                sentinel_token = build_sentinel_token(
+                    self.session,
+                    device_id,
+                    flow="authorize_continue",
+                    user_agent=user_agent,
+                    sec_ch_ua=sec_ch_ua,
+                    impersonate=impersonate,
+                )
+                if sentinel_token:
+                    self._log("authorize_continue: 已通过 HTTP PoW 获取 token")
+                else:
+                    self._set_error("无法获取 sentinel token (authorize_continue)")
+                    return None
 
         request_url = f"{self.oauth_issuer}/api/accounts/authorize/continue"
         headers = self._headers(
@@ -616,34 +621,39 @@ class OAuthClient:
         sec_ch_ua=None,
         impersonate=None,
         referer=None,
+        sentinel_override: str | None = None,
     ):
         """提交密码，获取下一步状态。"""
         self._log("步骤3: POST /api/accounts/password/verify")
 
-        sentinel_pwd = get_sentinel_token_via_browser(
-            flow="password_verify",
-            proxy=self.proxy,
-            page_url=referer or f"{self.oauth_issuer}/log-in/password",
-            headless=self.browser_mode != "headed",
-            device_id=device_id,
-            log_fn=lambda msg: self._log(f"password_verify: {msg}"),
-        )
+        sentinel_pwd = str(sentinel_override or "").strip()
         if sentinel_pwd:
-            self._log("password_verify: 已通过 Playwright SentinelSDK 获取 token")
+            self._log("password_verify: 复用统一 Sentinel token")
         else:
-            sentinel_pwd = build_sentinel_token(
-                self.session,
-                device_id,
+            sentinel_pwd = get_sentinel_token_via_browser(
                 flow="password_verify",
-                user_agent=user_agent,
-                sec_ch_ua=sec_ch_ua,
-                impersonate=impersonate,
+                proxy=self.proxy,
+                page_url=referer or f"{self.oauth_issuer}/log-in/password",
+                headless=self.browser_mode != "headed",
+                device_id=device_id,
+                log_fn=lambda msg: self._log(f"password_verify: {msg}"),
             )
             if sentinel_pwd:
-                self._log("password_verify: 已通过 HTTP PoW 获取 token")
+                self._log("password_verify: 已通过 Playwright SentinelSDK 获取 token")
             else:
-                self._set_error("无法获取 sentinel token (password_verify)")
-                return None
+                sentinel_pwd = build_sentinel_token(
+                    self.session,
+                    device_id,
+                    flow="password_verify",
+                    user_agent=user_agent,
+                    sec_ch_ua=sec_ch_ua,
+                    impersonate=impersonate,
+                )
+                if sentinel_pwd:
+                    self._log("password_verify: 已通过 HTTP PoW 获取 token")
+                else:
+                    self._set_error("无法获取 sentinel token (password_verify)")
+                    return None
 
         request_url = f"{self.oauth_issuer}/api/accounts/password/verify"
         headers = self._headers(
@@ -925,6 +935,30 @@ class OAuthClient:
                 device_id = str(uuid.uuid4())
                 self._log(f"OAuth device_id 缺失，已生成新的 device_id={device_id}")
 
+        login_sentinel = get_sentinel_token_via_browser(
+            flow="authorize_continue",
+            proxy=self.proxy,
+            page_url=f"{self.oauth_issuer}/log-in",
+            headless=self.browser_mode != "headed",
+            device_id=device_id,
+            log_fn=lambda msg: self._log(f"login_sentinel: {msg}"),
+        )
+        if login_sentinel:
+            self._log("login_sentinel: 已通过 Playwright SentinelSDK 获取 token")
+        else:
+            login_sentinel = build_sentinel_token(
+                self.session,
+                device_id,
+                flow="authorize_continue",
+                user_agent=user_agent,
+                sec_ch_ua=sec_ch_ua,
+                impersonate=impersonate,
+            )
+            if login_sentinel:
+                self._log("login_sentinel: 已通过 HTTP PoW 获取 token")
+            else:
+                self._log("login_sentinel: 未生成 sentinel token（继续尝试）")
+
         code_verifier, code_challenge = generate_pkce()
         oauth_state = secrets.token_urlsafe(32)
         authorize_params = {
@@ -969,6 +1003,7 @@ class OAuthClient:
             authorize_url=authorize_url,
             authorize_params=authorize_params,
             screen_hint=str(screen_hint or "login"),
+            sentinel_override=login_sentinel,
         )
         if not state:
             if not self.last_error:
@@ -1027,6 +1062,7 @@ class OAuthClient:
                     sec_ch_ua=sec_ch_ua,
                     impersonate=impersonate,
                     referer=state.current_url or state.continue_url or f"{self.oauth_issuer}/log-in/password",
+                    sentinel_override=login_sentinel,
                 )
                 if not next_state:
                     if not self.last_error:
@@ -1044,6 +1080,7 @@ class OAuthClient:
                     sec_ch_ua=sec_ch_ua,
                     impersonate=impersonate,
                     referer=state.current_url or state.continue_url or referer,
+                    sentinel_override=login_sentinel,
                 )
                 if not next_state:
                     if not self.last_error:
@@ -1092,6 +1129,7 @@ class OAuthClient:
                     impersonate,
                     skymail_client,
                     state,
+                    sentinel_override=login_sentinel,
                 )
                 if not next_state:
                     if not self.last_error:
@@ -1954,36 +1992,41 @@ class OAuthClient:
         impersonate,
         skymail_client,
         state,
+        sentinel_override: str | None = None,
     ):
         """处理 OAuth 阶段的邮箱 OTP 验证，返回服务端声明的下一步状态。"""
         self._log("步骤4: 检测到邮箱 OTP 验证")
 
         request_url = f"{self.oauth_issuer}/api/accounts/email-otp/validate"
-        sentinel_otp = get_sentinel_token_via_browser(
-            flow="email_otp_validate",
-            proxy=self.proxy,
-            page_url=state.current_url
-            or state.continue_url
-            or f"{self.oauth_issuer}/email-verification",
-            headless=self.browser_mode != "headed",
-            device_id=device_id,
-            log_fn=lambda msg: self._log(f"email_otp_validate: {msg}"),
-        )
+        sentinel_otp = str(sentinel_override or "").strip()
         if sentinel_otp:
-            self._log("email_otp_validate: 已通过 Playwright SentinelSDK 获取 token")
+            self._log("email_otp_validate: 复用统一 Sentinel token")
         else:
-            sentinel_otp = build_sentinel_token(
-                self.session,
-                device_id,
+            sentinel_otp = get_sentinel_token_via_browser(
                 flow="email_otp_validate",
-                user_agent=user_agent,
-                sec_ch_ua=sec_ch_ua,
-                impersonate=impersonate,
+                proxy=self.proxy,
+                page_url=state.current_url
+                or state.continue_url
+                or f"{self.oauth_issuer}/email-verification",
+                headless=self.browser_mode != "headed",
+                device_id=device_id,
+                log_fn=lambda msg: self._log(f"email_otp_validate: {msg}"),
             )
             if sentinel_otp:
-                self._log("email_otp_validate: 已通过 HTTP PoW 获取 token")
+                self._log("email_otp_validate: 已通过 Playwright SentinelSDK 获取 token")
             else:
-                self._log("email_otp_validate: 未生成 sentinel token（继续尝试）")
+                sentinel_otp = build_sentinel_token(
+                    self.session,
+                    device_id,
+                    flow="email_otp_validate",
+                    user_agent=user_agent,
+                    sec_ch_ua=sec_ch_ua,
+                    impersonate=impersonate,
+                )
+                if sentinel_otp:
+                    self._log("email_otp_validate: 已通过 HTTP PoW 获取 token")
+                else:
+                    self._log("email_otp_validate: 未生成 sentinel token（继续尝试）")
 
         headers_otp = self._headers(
             request_url,
